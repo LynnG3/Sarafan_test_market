@@ -1,141 +1,222 @@
+import io
+
+from PIL import Image
 from rest_framework import serializers
+from rest_framework.authtoken.models import Token
+from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
+from djoser.serializers import UserCreateSerializer, UserSerializer
 
-from custom_sessions.models import CustomSession
-from movies.models import Genre, Movie
-from services.kinopoisk.kinopoisk_service import KinopoiskMovies
-from users.models import User
+from market_backend.constants import (
+    IMAGE_SMALL_SIZE, IMAGE_MEDIUM_SIZE, IMAGE_LARGE_SIZE
+)
+from products.models import Category, Product, Purchase, Subcategory
 
 
-class CustomUserSerializer(serializers.ModelSerializer):
-    """Serializer for user."""
+User = get_user_model()
+
+
+class CustomUserSerializer(UserSerializer):
+    """Сериализатор для кастомной модели пользователя."""
+
+
+class Meta:
+    model = User
+    fields = (
+        "id",
+        "username",
+        "first_name",
+        "last_name",
+        "email",
+    )
+
+
+class CreateCustomUserSerializer(UserCreateSerializer):
+    """Сериализатор для создания кастомной модели пользователя."""
 
     class Meta:
         model = User
-        fields = ('name', 'device_id')
+        fields = (
+            "email",
+            "username",
+            "first_name",
+            "last_name",
+            "password",
+        )
         extra_kwargs = {
-            'device_id': {'write_only': True},  # Hide device_id from responses
+            "password": {"write_only": True},
+            "email": {"required": True},
+            "first_name": {"required": True},
+            "last_name": {"required": True},
         }
 
 
-class GenreSerializer(serializers.ModelSerializer):
-    """Сериализатор жанра."""
+class TokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Token
+        fields = ("key",)
+
+
+class ProductSerializer(serializers.ModelSerializer):
+    """Сериализатор списка продуктов. """
+
+    image_large = serializers.ImageField(required=True)
+    image_medium = serializers.SerializerMethodField()
+    image_small = serializers.SerializerMethodField()
 
     class Meta:
-        model = Genre
-        fields = [
+        model = Product
+        fields = (
             'id',
-            'name'
-        ]
-
-
-class MovieSerializer(serializers.ModelSerializer):
-    """Сериализатор фильма/списка фильмов."""
-
-    genre = serializers.SlugRelatedField(
-        many=True,
-        slug_field='name',
-        queryset=Genre.objects.all()
-    )
-
-    class Meta:
-        model = Movie
-        fields = ['id', 'name', 'genre', 'image']
-
-
-class CustomSessionCreateSerializer(serializers.ModelSerializer):
-    movies = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=Movie.objects.all()
-    )
-    users = serializers.PrimaryKeyRelatedField(
-        many=True, queryset=User.objects.all()
-    )
-    id = serializers.CharField(read_only=True)
-
-    class Meta:
-        model = CustomSession
-        fields = ['id', 'movies', 'matched_movies', 'date', 'status', 'users']
+            'name',
+            'slug',
+            'price',
+            'category',
+            'subcategory',
+            'image_small',
+            'image_medium',
+            'image_large'
+        )
 
     def create(self, validated_data):
-        genres = self.context.get('genres', [])
-        collections = self.context.get('collections', [])
-        kinopoisk_movies = KinopoiskMovies(
-            genres=genres,
-            collections=collections
+        image_large = validated_data.pop('image_large')
+        product = Product.objects.create(**validated_data)
+        # Проверяет размер изначально загруженного изображения
+        if (
+            image_large.width == IMAGE_LARGE_SIZE[0]
+            and image_large.height == IMAGE_LARGE_SIZE[1]
+        ):
+            image_large = image_large
+        else:
+            # Изменяет размер загруженного изображения,
+            # если оно не соответствует заданному
+            image_large = self.resize_image(image_large, IMAGE_LARGE_SIZE)
+        # Сохранет исходное изображение в нужном размере
+        product.image_large.save(
+            f"{product.slug}_large.jpg", image_large, save=True
         )
-        movies_data = kinopoisk_movies.get_movies()
-        # поиск фильмов в собственной БД
-        existing_movies = Movie.objects.filter(
-            id__in=[movie['id'] for movie in movies_data]
-        )
-        existing_movies_ids = [movie.id for movie in existing_movies]
-        # поиск фильмов на кинопоиске, сохранение их в БД
-        new_movies_data = [
-            movie for movie in movies_data
-            if movie['id'] not in existing_movies_ids
-        ]
-        new_movies = [
-            Movie(
-                id=movie['id'],
-                name=movie['name'],
-                genre=movie['genre'],
-                image=movie['image']
+        # Сохраняет изображения в среднем и маленьком размерах
+        self.get_image_medium(product)
+        self.get_image_small(product)
+        product.save()
+        return product
+
+    def get_image_medium(self, obj):
+        if not obj.image_medium:
+            image_medium = self.resize_image(
+                obj.image_large, IMAGE_MEDIUM_SIZE
             )
-            for movie in new_movies_data
-        ]
-        Movie.objects.bulk_create(new_movies)
-        session = CustomSession.objects.create(
-            **validated_data,
-            movies=Movie.objects.filter(
-                id__in=[movie['id'] for movie in movies_data]
+            obj.image_medium.save(
+                f"{obj.slug}_medium.jpg",
+                image_medium, save=True
             )
+        return obj.image_medium.url
+
+    def get_image_small(self, obj):
+        if not obj.image_small:
+            image_small = self.resize_image(
+                obj.image_large, IMAGE_SMALL_SIZE
+            )
+            obj.image_small.save(
+                f"{obj.slug}_small.jpg",
+                image_small, save=True
+            )
+        return obj.image_small.url
+
+    def resize_image(self, image, size):
+        """
+        Изменяет размер загруженного изображения
+        в соответсвии с требованиями, заданными в backend/constants.py
+        """
+        image.seek(0)
+        img = Image.open(image)
+        img.thumbnail(size, resample=Image.BICUBIC)
+
+        new_image = io.BytesIO()
+        img.save(new_image, format='JPEG')
+        return ContentFile(new_image.getvalue())
+
+
+class SubcategorySerializer(serializers.ModelSerializer):
+    """Сериализатор подкатегорий. """
+
+    class Meta:
+        model = Subcategory
+        fields = (
+            'id',
+            'name',
+            'slug',
+            'image'
         )
-        return session
 
 
-class WaitingSessionSerializer(serializers.ModelSerializer):
-    """Сериализатор сессии в статусе ожидания."""
+class CategorySerializer(serializers.ModelSerializer):
+    """Сериализатор списка категорий c подкатегориями. """
 
-    users = CustomUserSerializer(many=True, read_only=True)
-
-    class Meta:
-        model = CustomSession
-        fields = [
-            'id',
-            'users',
-            'movies',
-            'date',
-            'status',
-        ]
-
-
-class VotingSessionSerializer(serializers.ModelSerializer):
-    """Сериализатор сессии в статусе голосования."""
-
-    users = CustomUserSerializer(many=True, read_only=True)
+    subcategories = SubcategorySerializer(many=True, read_only=True)
 
     class Meta:
-        model = CustomSession
-        fields = [
+        model = Category
+        fields = (
             'id',
-            'users',
-            'movies',
-            'matched_movies',
-            'date',
-            'status'
-        ]
+            'name',
+            'slug',
+            'image',
+            'subcategories'
+        )
 
 
-class ClosedSessionSerializer(serializers.ModelSerializer):
-    """Сериализатор закрытой сессии."""
+class SubcategoryProductsSerializer(serializers.ModelSerializer):
+    """Сериализатор подкатегории с продуктами. """
 
-    users = CustomUserSerializer(many=True, read_only=True)
+    products = ProductSerializer(many=True, read_only=True)
 
     class Meta:
-        model = CustomSession
-        fields = [
+        model = Subcategory
+        fields = (
             'id',
-            'users',
-            'matched_movies',
-            'date',
-            'status'
-        ]
+            'name',
+            'slug',
+            'image',
+            'products'
+        )
+
+
+class ProductInCartSerializer(serializers.ModelSerializer):
+    """Сериализатор продукта для корзины. """
+
+    class Meta:
+        model = Product
+        fields = (
+            'id',
+            'name',
+            'price',
+            'image_small',
+        )
+
+    def get_image_small(self, obj):
+        return obj.image_small
+
+
+class PurchaseSerializer(serializers.ModelSerializer):
+    """Сериализатор создания покупки
+    для добавления товара в корзину."""
+
+    product_id = serializers.PrimaryKeyRelatedField(
+        queryset=Product.objects.all(),
+        source='product',
+    )
+
+    class Meta:
+        model = Purchase
+        fields = ('user', 'product_id', 'quantity', 'cost')
+
+
+class PurchaseGetSerializer(serializers.ModelSerializer):
+    """Сериализатор представления товара в корзине."""
+
+    product = ProductInCartSerializer(read_only=True)
+
+    class Meta:
+        model = Purchase
+        fields = ('product', 'quantity', 'cost')

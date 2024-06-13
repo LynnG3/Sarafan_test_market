@@ -1,6 +1,7 @@
 from django.db import models
-
 from django.utils.text import slugify
+
+from users.models import CustomUser
 
 
 class Category(models.Model):
@@ -37,8 +38,7 @@ class Subcategory(models.Model):
         max_length=100
     )
     slug = models.SlugField(
-        unique=True,
-        blank=True
+        unique=True
     )
     category = models.ForeignKey(
         Category,
@@ -70,7 +70,7 @@ class Product(models.Model):
         max_length=200
     )
     slug = models.SlugField(
-        unique=True, blank=True
+        unique=True
     )
     subcategory = models.ForeignKey(
         Subcategory,
@@ -84,10 +84,14 @@ class Product(models.Model):
         max_digits=8, decimal_places=2
     )
     image_small = models.ImageField(
-        upload_to='products/small'
+        upload_to='products/small',
+        null=True,
+        blank=True
     )
     image_medium = models.ImageField(
-        upload_to='products/medium'
+        upload_to='products/medium',
+        null=True,
+        blank=True
     )
     image_large = models.ImageField(
         upload_to='products/large'
@@ -106,3 +110,37 @@ class Product(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class Purchase(models.Model):
+    """Модель покупки в корзине. """
+
+    user = models.ForeignKey(
+        CustomUser,
+        on_delete=models.CASCADE,
+        verbose_name='Пользователь'
+    )
+    product = models.ForeignKey(
+        Product,
+        null=True,
+        default=None,
+        on_delete=models.CASCADE,
+        verbose_name='Продукты'
+    )
+    quantity = models.PositiveSmallIntegerField(
+        null=True,
+        default=None,
+        verbose_name='Количество'
+    )
+
+    class Meta:
+        default_related_name = 'purchase'
+        verbose_name = 'Корзина покупок'
+        verbose_name_plural = 'Корзины покупок'
+
+    @property
+    def cost(self):
+        return self.product.price * self.quantity
+
+    def __str__(self):
+        return f'Корзина пользователя {self.user.username}'

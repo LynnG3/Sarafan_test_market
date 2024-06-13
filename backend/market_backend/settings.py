@@ -18,7 +18,9 @@ SECRET_KEY = os.getenv('SECRET_KEY', default='secret_key')
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv('DEBUG', default='True')
 
-ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', default='127.0.0.1, localhost').split(', ')
+ALLOWED_HOSTS = os.getenv(
+    'ALLOWED_HOSTS', default='127.0.0.1, localhost'
+).split(', ')
 
 
 # Application definition
@@ -30,7 +32,8 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'drf_yasg',
+    'rest_framework.authtoken',
+    'djoser',
     'drf_spectacular',
     'rest_framework',
     'debug_toolbar',
@@ -134,11 +137,11 @@ DJOSER = {
     'LOGIN_FIELD': 'email',
     'HIDE_USERS': False,
     'PERMISSIONS': {
-        'user': ("rest_framework.permissions.IsAuthenticated",),
+        'user': ('api.permissions.IsOwner',),
         'user_list': ['rest_framework.permissions.AllowAny'],
     },
     'SERIALIZERS': {
-        'user_create': 'api.serializers.CustomUserSerializer',
+        'user_create': 'api.serializers.CreateCustomUserSerializer',
         'user': 'api.serializers.CustomUserSerializer',
         'current_user': 'api.serializers.CustomUserSerializer',
     },
@@ -151,11 +154,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticatedOrReadOnly",
     ],
-    "DEFAULT_FILTER_BACKENDS":
-        ["django_filters.rest_framework.DjangoFilterBackend"],
-    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+    "DEFAULT_FILTER_BACKENDS": [
+        "django_filters.rest_framework.DjangoFilterBackend"
+    ],
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
-    'PAGE_SIZE': 10,
 }
 
 MEDIA_URL = '/media/'
@@ -176,8 +178,8 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 SPECTACULAR_SETTINGS = {
-    "TITLE": "Davay posmotrim",
-    "DESCRIPTION": "Давай посмотрим - приложение для выбора и просмотра фильмов в компании.",
+    "TITLE": "Sarafan_market",
+    "DESCRIPTION": "Магазин продуктов.",
     "VERSION": "1.0.0",
     "SERVE_INCLUDE_SCHEMA": False,
     "SWAGGER_UI_SETTINGS": {

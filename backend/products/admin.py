@@ -56,8 +56,8 @@ class ProductAdmin(admin.ModelAdmin):
         'price',
         'category',
         'subcategory',
-        'image_small',
-        'image_medium',
+        # 'image_small',
+        # 'image_medium',
         'image_large'
     )
     readonly_fields = ('id',)
