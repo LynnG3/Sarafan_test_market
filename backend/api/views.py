@@ -6,10 +6,11 @@ from rest_framework.decorators import action
 from rest_framework.generics import ListAPIView
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+# from rest_framework.views import APIView
 from rest_framework.viewsets import ModelViewSet
 
 from .pagination import CustomPagination
-from .permissions import IsOwner
+from .permissions import IsOwner, IsAdminUserOrReadonlyOrAddToCart
 from products.models import Category, Product, Purchase, Subcategory
 from .serializers import (
     CustomUserSerializer, CategorySerializer,
@@ -42,11 +43,51 @@ class BaseMarketView(ListAPIView):
     permission_classes = [AllowAny]
 
 
-class ProductListView(BaseMarketView):
-    """Представление списка продуктов. """
+class ProductViewSet(ModelViewSet):
+    """Представление продуктов. """
 
     queryset = Product.objects.all()
     serializer_class = ProductSerializer
+    permission_classes = [IsAdminUserOrReadonlyOrAddToCart]
+
+    def get_serializer_class(self):
+        if self.action == 'create' and self.request.path.endswith(
+            '/add_to_cart/'
+        ):
+            return PurchaseSerializer
+        return super().get_serializer_class()
+
+    @action(detail=True, methods=['post'])
+    def add_to_cart(self, request, pk=None):
+        """
+        Добавляет продукт в корзину пользователя.
+        """
+        user = request.user
+        product_id = self.kwargs.get('id')
+        quantity = request.data.get('quantity')
+        cart_product, created = Purchase.objects.get_or_create(
+            user=user,
+            product=get_object_or_404(Product, id=product_id),
+            defaults={'quantity': 0}
+        )
+
+        cart_product, created = Purchase.objects.get_or_create(
+            user=user, product=product,
+            defaults={'quantity': 1}
+        )
+        # Если объект был создан ранее - увеличивает количество
+        # на значение quantity из запроса
+        if not created:
+            cart_product.quantity += int(quantity)
+            cart_product.save()
+        # Если объект создается впервые -
+        # устанавливает количество из запроса
+        else:
+            cart_product.quantity = int(quantity)
+            cart_product.save()
+
+        serializer = PurchaseSerializer(cart_product)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
 
 
 class CategoryListView(BaseMarketView):
@@ -88,27 +129,27 @@ class PurchaseViewSet(ModelViewSet):
         user = self.request.user
         return Purchase.objects.filter(user=user)
 
-    def create(self, request, *args, **kwargs):
-        """Добавляет продукт в корзину пользователя."""
-        user = request.user
-        product_id = request.data.get('product_id')
-        quantity = request.data.get('quantity')
-        product = get_object_or_404(Product, id=product_id)
-        cart_product, created = Purchase.objects.get_or_create(
-            user=user, product=product,
-            defaults={'quantity': 0}
-        )
-    # Если объект был создан, ранее - увеличивает количество
-        if not created:
-            # Увеличивает количество на значение quantity из запроса
-            cart_product.quantity += int(quantity)
-            cart_product.save()
-        else:
-            # Устанавливает количество из запроса
-            cart_product.quantity = int(quantity)
-            cart_product.save()
-        serializer = PurchaseSerializer(cart_product)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
+    # def create(self, request, *args, **kwargs):
+    #     """Добавляет продукт в корзину пользователя."""
+    #     user = request.user
+    #     product_id = request.data.get('product_id')
+    #     quantity = request.data.get('quantity')
+    #     product = get_object_or_404(Product, id=product_id)
+    #     cart_product, created = Purchase.objects.get_or_create(
+    #         user=user, product=product,
+    #         defaults={'quantity': 0}
+    #     )
+    # # Если объект был создан ранее - увеличивает количество
+    #     if not created:
+    #         # Увеличивает количество на значение quantity из запроса
+    #         cart_product.quantity += int(quantity)
+    #         cart_product.save()
+    #     else:
+    #         # Устанавливает количество из запроса
+    #         cart_product.quantity = int(quantity)
+    #         cart_product.save()
+    #     serializer = PurchaseSerializer(cart_product)
+    #     return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     def partial_update(self, request, *args, **kwargs):
         """Изменяет количество товара в корзине."""

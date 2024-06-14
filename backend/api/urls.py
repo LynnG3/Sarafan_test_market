@@ -4,11 +4,12 @@ from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 
 from .views import (
     CategoryListView,
-    ProductListView, SubcategoryListView,
+    ProductViewSet, SubcategoryListView,
     PurchaseViewSet, CustomUserViewSet,
 )
 
 router = DefaultRouter()
+router.register('products', ProductViewSet, basename='product')
 router.register(
     r'purchase', PurchaseViewSet, basename='purchase'
 )
@@ -18,7 +19,6 @@ urlpatterns = [
     path('', include(router.urls)),
     path('', include("djoser.urls")),
     path('', include("djoser.urls.authtoken")),
-    path('products/', ProductListView.as_view(), name='product-list'),
     path('categories/', CategoryListView.as_view(), name='category-list'),
     path(
         'subcategories/<slug:subcategory_slug>/',
